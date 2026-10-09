@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTML Formatter</title>
+<style>
+:root{
+  --bg:#f5f6f8;--panel:#ffffff;--text:#1d2330;--muted:#6b7280;--border:#d9dde3;
+  --accent:#2563eb;--accent-text:#ffffff;--warn:#92400e;--warn-bg:#fef3c7;--ok:#047857;--code-bg:#fbfbfc;
+  --drop:rgba(37,99,235,.08);
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#14161a;--panel:#1c1f25;--text:#e6e8eb;--muted:#9aa1ab;--border:#2e333b;
+    --accent:#4f8cff;--accent-text:#ffffff;--warn:#fcd34d;--warn-bg:#3a2e12;--ok:#34d399;--code-bg:#17191e;
+    --drop:rgba(79,140,255,.12);
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+header{padding:12px 16px 2px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{font-size:18px;margin:0}
+.sub{color:var(--muted);font-size:12.5px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:8px 16px}
+button{font:inherit;border:1px solid var(--border);background:var(--panel);color:var(--text);padding:6px 12px;border-radius:6px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
+select{font:inherit;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text)}
+.field{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label.opt{display:inline-flex;align-items:center;gap:5px;user-select:none;cursor:pointer}
+.sep{width:1px;height:22px;background:var(--border)}
+main{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px 16px 8px;min-height:0}
+.pane{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--border);border-radius:8px;min-height:0;position:relative}
+.pane-head{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border)}
+.pane-head strong{flex:1;font-size:13px}
+.pane-head button{padding:3px 9px;font-size:12.5px}
+textarea{flex:1;width:100%;resize:none;border:0;outline:none;padding:10px 12px;background:var(--code-bg);color:var(--text);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;tab-size:4;white-space:pre;overflow:auto;
+  border-radius:0 0 8px 8px;min-height:300px}
+.drop{position:absolute;inset:0;border:2px dashed var(--accent);border-radius:8px;background:var(--drop);display:none;
+  align-items:center;justify-content:center;font-weight:600;color:var(--accent);pointer-events:none}
+.pane.dragging .drop{display:flex}
+footer{padding:0 16px 12px;color:var(--muted);font-size:12.5px}
+.ok{color:var(--ok)}
+details.warnings{margin-top:6px;background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:6px 10px}
+details.warnings summary{cursor:pointer;font-weight:600}
+details.warnings ul{margin:6px 0 2px;padding-left:18px;max-height:140px;overflow:auto}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:7px 14px;border-radius:6px;
+  font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+kbd{font:11px ui-monospace,Consolas,monospace;border:1px solid var(--border);border-radius:4px;padding:0 4px}
+@media (max-width:820px){main{grid-template-columns:1fr} textarea{min-height:240px}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HTML Formatter</h1>
+  <span class="sub">Runs entirely in your browser, offline. Nothing is uploaded. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to format.</span>
+</header>
+
+<div class="toolbar">
+  <button class="primary" id="btnFormat" title="Beautify (Ctrl+Enter)">Format</button>
+  <button id="btnMinify" title="Remove whitespace and comments">Minify</button>
+  <span class="sep"></span>
+  <label class="field">Indent
+    <select id="optIndent">
+      <option value="2">2 spaces</option>
+      <option value="4" selected>4 spaces</option>
+      <option value="8">8 spaces</option>
+      <option value="tab">Tabs</option>
+    </select>
+  </label>
+  <label class="field">Line width
+    <select id="optWrap">
+      <option value="80">80</option>
+      <option value="120" selected>120</option>
+      <option value="160">160</option>
+      <option value="0">No wrap</option>
+    </select>
+  </label>
+  <span class="sep"></span>
+  <label class="opt"><input type="checkbox" id="optCode" checked> Format CSS/JS inside &lt;style&gt;/&lt;script&gt;</label>
+  <label class="opt"><input type="checkbox" id="optBlank" checked> Keep blank lines</label>
+  <label class="opt"><input type="checkbox" id="optAttrs" checked> Split long attribute lists</label>
+  <label class="opt"><input type="checkbox" id="optComments"> Remove comments</label>
+</div>
+
+<main>
+  <section class="pane" id="inPane">
+    <div class="pane-head">
+      <strong>Input</strong>
+      <button id="btnUpload" title="Open an .html file">Open file</button>
+      <button id="btnSample">Sample</button>
+      <button id="btnClear">Clear</button>
+      <input type="file" id="fileInput" accept=".html,.htm,.xhtml,.php,.txt,.xml,.svg,text/html" hidden>
+    </div>
+    <textarea id="input" spellcheck="false" placeholder="Paste messy HTML here, or drop a file onto this box…"></textarea>
+    <div class="drop">Drop file to load</div>
+  </section>
+  <section class="pane">
+    <div class="pane-head">
+      <strong>Output</strong>
+      <button id="btnCopy">Copy</button>
+      <button id="btnDownload">Download</button>
+      <button id="btnUse" title="Move the output back into the input box">Use as input</button>
+    </div>
+    <textarea id="output" spellcheck="false" placeholder="Formatted HTML appears here"></textarea>
+  </section>
+</main>
+
+<footer>
+  <div id="stats">Ready.</div>
+  <div id="warnBox"></div>
+</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===================================================================
+   Core formatter (no dependencies)
+   =================================================================== */
+const VOID = new Set(['area','base','br','col','embed','hr','img','input','keygen','link','meta','param','source','track','wbr']);
+const INLINE = new Set(['a','abbr','acronym','b','bdi','bdo','big','br','button','cite','code','data','del','dfn','em','font','i','img',
+  'input','ins','kbd','label','mark','meter','output','q','s','samp','select','small','span','strike','strong','sub','sup','time','tt','u','var','wbr']);
+const RAW = new Set(['script','style','textarea','pre','xmp']);
+// opening tag X implicitly closes an open sibling Y (simplified HTML rules)
+const AUTO_CLOSE = {
+  li:['li'], dt:['dt','dd'], dd:['dt','dd'], p:['p'], option:['option'], optgroup:['optgroup','option'],
+  tr:['tr','td','th'], td:['td','th'], th:['td','th'], thead:['tbody','tfoot'], tbody:['thead','tbody','tfoot','tr','td','th'],
+  tfoot:['thead','tbody','tr','td','th'], rt:['rt','rp'], rp:['rt','rp']
+};
+const OPTIONAL_END = new Set(['p','li','dt','dd','option','optgroup','tr','td','th','thead','tbody','tfoot','colgroup','html','head','body','rt','rp']);
+
+function lineIndex(src){
+  const nl=[]; for(let i=0;i<src.length;i++) if(src.charCodeAt(i)===10) nl.push(i);
+  return pos=>{ let lo=0,hi=nl.length; while(lo<hi){const m=(lo+hi)>>1; if(nl[m]<pos) lo=m+1; else hi=m;} return lo+1; };
+}
+
+function parseAttrs(s){
+  const res=[]; const re=/([^\s"'>\/=]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g; let m;
+  while((m=re.exec(s))){
+    let v=m[2];
+    if(v===undefined) res.push(m[1]);
+    else{
+      if(v[0]!=='"' && v[0]!=="'") v = v.includes('"') ? "'"+v+"'" : '"'+v+'"';
+      res.push(m[1]+'='+v);
+    }
+  }
+  return res;
+}
+
+function tokenize(src){
+  const toks=[]; const n=src.length; let i=0;
+  while(i<n){
+    const c=src[i], c1=src[i+1];
+    if(c==='<'){
+      if(src.startsWith('<!--',i)){
+        let e=src.indexOf('-->',i+4); e = e<0 ? n : e+3;
+        toks.push({t:'comment',v:src.slice(i,e),pos:i}); i=e; continue;
+      }
+      if(src.startsWith('<![CDATA[',i)){
+        let e=src.indexOf(']]>',i); e = e<0 ? n : e+3;
+        toks.push({t:'raw',v:src.slice(i,e),pos:i}); i=e; continue;
+      }
+      if(c1==='!'){
+        let e=src.indexOf('>',i); e = e<0 ? n : e+1;
+        toks.push({t:'doctype',v:src.slice(i,e),pos:i}); i=e; continue;
+      }
+      if(c1==='?'){
+        let e=src.indexOf('?>',i); e = e<0 ? n : e+2;
+        toks.push({t:'raw',v:src.slice(i,e),pos:i}); i=e; continue;
+      }
+      if(c1==='/' && /[A-Za-z]/.test(src[i+2]||'')){
+        let e=src.indexOf('>',i); if(e<0) e=n-1;
+        const name=src.slice(i+2,e+1).match(/^[^\s\/>]+/)[0];
+        toks.push({t:'close',name,lname:name.toLowerCase(),pos:i}); i=e+1; continue;
+      }
+      if(/[A-Za-z]/.test(c1||'')){
+        const name=src.slice(i+1).match(/^[^\s\/>]+/)[0];
+        let j=i+1+name.length, q=null;
+        for(;j<n;j++){
+          const ch=src[j];
+          if(q){ if(ch===q) q=null; }
+          else if(ch==='"'||ch==="'") q=ch;
+          else if(ch==='>') break;
+        }
+        if(j>=n){ toks.push({t:'text',v:src.slice(i),pos:i}); break; }
+        let attrStr=src.slice(i+1+name.length,j);
+        let selfClose=false;
+        if(/\/\s*$/.test(attrStr)){ selfClose=true; attrStr=attrStr.replace(/\/\s*$/,''); }
+        const lname=name.toLowerCase();
+        const tok={t:'open',name,lname,attrs:parseAttrs(attrStr),selfClose,pos:i};
+        i=j+1;
+        if(RAW.has(lname) && !selfClose){
+          const re=new RegExp('</'+lname+'\\s*>','ig'); re.lastIndex=i;
+          const m=re.exec(src);
+          if(m){ tok.raw=src.slice(i,m.index); tok.closed=true; i=m.index+m[0].length; }
+          else { tok.raw=src.slice(i); tok.closed=false; i=n; }
+        }
+        toks.push(tok); continue;
+      }
+    }
+    // text up to next '<'
+    let e=src.indexOf('<',i+1); if(e<0) e=n;
+    const last=toks[toks.length-1];
+    if(last && last.t==='text') last.v+=src.slice(i,e);
+    else toks.push({t:'text',v:src.slice(i,e),pos:i});
+    i=e;
+  }
+  return toks;
+}
+
+function parse(src){
+  const lineOf=lineIndex(src);
+  const warnings=[];
+  const root={type:'root',children:[],lname:'#root'};
+  const stack=[root];
+  const top=()=>stack[stack.length-1];
+  const warnUnclosed=el=>{ if(!OPTIONAL_END.has(el.lname)) warnings.push(`Line ${lineOf(el.pos)}: <${el.name}> is never closed`); };
+  for(const t of tokenize(src)){
+    if(t.t==='open'){
+      const closers=AUTO_CLOSE[t.lname];
+      if(closers) while(stack.length>1 && closers.includes(top().lname)) stack.pop();
+      const el={type:'el',name:t.name,lname:t.lname,attrs:t.attrs,selfClose:t.selfClose,children:[],pos:t.pos,closed:false};
+      if(t.raw!==undefined){ el.raw=t.raw; el.closed=t.closed; if(!t.closed) warnUnclosed(el); }
+      top().children.push(el);
+      if(!VOID.has(t.lname) && !t.selfClose && t.raw===undefined) stack.push(el);
+    }else if(t.t==='close'){
+      let k=stack.length-1;
+      while(k>0 && stack[k].lname!==t.lname) k--;
+      if(k>0){
+        for(let x=stack.length-1;x>k;x--) warnUnclosed(stack[x]);
+        stack[k].closed=true; stack[k].closeName=t.name; stack.length=k;
+      }else if(VOID.has(t.lname)){
+        // </br> etc. – harmless, drop it
+        warnings.push(`Line ${lineOf(t.pos)}: removed invalid closing tag </${t.name}>`);
+      }else{
+        warnings.push(`Line ${lineOf(t.pos)}: stray closing tag </${t.name}> (no matching opening tag)`);
+        top().children.push({type:'raw',v:`</${t.name}>`});
+      }
+    }else if(t.t==='text'){
+      top().children.push({type:'text',v:t.v});
+    }else{
+      top().children.push({type:t.t,v:t.v});
+    }
+  }
+  for(let x=stack.length-1;x>0;x--) warnUnclosed(stack[x]);
+  return {root,warnings};
+}
+
+/* ---------- helpers ---------- */
+const isConditional = v => /^<!--\s*\[if|<!\[endif\]\s*-->$/i.test(v);
+const isWS = n => n.type==='text' && !/\S/.test(n.v);
+
+function dedent(text){
+  let lines=text.replace(/\r\n?/g,'\n').split('\n').map(l=>l.replace(/\s+$/,''));
+  // code that starts on the same line as the opening tag has no indent of its own; don't let it set the baseline
+  const firstInline = lines.length>1 && /\S/.test(lines[0]);
+  if(firstInline) lines[0]=lines[0].trim();
+  while(lines.length && !lines[0].trim()) lines.shift();
+  while(lines.length && !lines[lines.length-1].trim()) lines.pop();
+  let min=Infinity;
+  lines.forEach((l,k)=>{ if(l.trim() && !(firstInline && k===0)) min=Math.min(min,l.match(/^\s*/)[0].length); });
+  if(!isFinite(min)) min=0;
+  return lines.map((l,k)=> firstInline && k===0 ? l : l.slice(min));
+}
+
+function formatCss(css, unit){
+  const out=[]; let cur='', depth=0, paren=0, i=0; const n=css.length;
+  const decl=new Set();
+  const flush=isDecl=>{ const t=cur.trim(); if(t){ if(isDecl && depth>0) decl.add(out.length); out.push(unit.repeat(depth)+t); } cur=''; };
+  while(i<n){
+    const c=css[i];
+    if(c==='/' && css[i+1]==='*'){
+      let e=css.indexOf('*/',i+2); e = e<0 ? n : e+2;
+      flush(); out.push(unit.repeat(depth)+css.slice(i,e)); i=e; continue;
+    }
+    if(c==='"'||c==="'"){
+      let j=i+1; while(j<n && css[j]!==c){ if(css[j]==='\\') j++; j++; }
+      cur+=css.slice(i,j+1); i=j+1; continue;
+    }
+    if(c==='(') paren++;
+    else if(c===')') paren=Math.max(0,paren-1);
+    if(paren===0){
+      if(c==='{'){ cur=cur.trim()+' {'; flush(); depth++; i++; continue; }
+      if(c==='}'){ flush(true); depth=Math.max(0,depth-1); out.push(unit.repeat(depth)+'}'); i++; continue; }
+      if(c===';'){ cur+=';'; flush(true); i++; continue; }
+    }
+    if(/\s/.test(c)){ if(cur && !/\s$/.test(cur)) cur+=' '; i++; continue; }
+    cur+=c; i++;
+  }
+  flush();
+  // blank line between top-level rules for readability
+  // "color:red" -> "color: red" on declaration lines only (never selectors like a:hover)
+  const res=[];
+  out.forEach((l,k)=>{
+    res.push(decl.has(k) ? l.replace(/^(\s*-{0,2}[\w-]+)\s*:\s*/, '$1: ') : l);
+    if(l==='}' && k<out.length-1) res.push('');
+  });
+  return res;
+}
+
+function minifyCss(css){
+  let out='', i=0, pend=false; const n=css.length;
+  const noBefore='{};,>)', noAfter='{};,>';
+  const add=s=>{
+    if(pend && out && !noAfter.includes(out[out.length-1]) && !noBefore.includes(s[0])) out+=' ';
+    pend=false;
+    if(s==='}' && out.endsWith(';')) out=out.slice(0,-1);
+    out+=s;
+  };
+  while(i<n){
+    const c=css[i];
+    if(c==='/' && css[i+1]==='*'){ let e=css.indexOf('*/',i+2); i = e<0 ? n : e+2; pend=true; continue; }
+    if(c==='"'||c==="'"){ let j=i+1; while(j<n && css[j]!==c){ if(css[j]==='\\') j++; j++; } add(css.slice(i,j+1)); i=j+1; continue; }
+    if(/\s/.test(c)){ pend=true; i++; continue; }
+    add(c); i++;
+  }
+  return out;
+}
+
+function isJsonScript(el){
+  const t=el.attrs.find(a=>/^type=/i.test(a));
+  return !!t && /json/i.test(t);
+}
+
+/* ---------- pretty printer ---------- */
+function formatHtml(src, o){
+  src=src.replace(/[\u0000\u0001]/g,'');
+  const unit=o.indent, W=o.wrap;
+  const {root,warnings}=parse(src);
+  const SP='\u0000', BR='\u0001';
+
+  const keepComment = v => !o.removeComments || isConditional(v);
+  const isInline = n => {
+    if(n.type==='text') return true;
+    if(n.type==='comment') return !n.v.includes('\n');
+    if(n.type==='el') return INLINE.has(n.lname) && n.raw===undefined && n.children.every(isInline);
+    return false;
+  };
+  const openTag = n => '<'+n.name+(n.attrs.length?' '+n.attrs.join(' '):'')+(n.selfClose?' /':'')+'>';
+  const closeTag = n => n.closed ? '</'+n.name+'>' : '';
+
+  const inlineStr = nodes => nodes.map(n=>{
+    if(n.type==='text') return n.v.replace(/\s+/g,SP);
+    if(n.type==='comment') return keepComment(n.v) ? n.v : '';
+    if(n.type==='el'){
+      const inner = (VOID.has(n.lname)||n.selfClose) ? '' : inlineStr(n.children);
+      return openTag(n)+inner+closeTag(n)+(n.lname==='br'?BR:'');
+    }
+    return n.v||'';
+  }).join('');
+
+  const clean = s => s.replace(/\u0000+/g,SP).replace(/^\u0000+|\u0000+$/g,'');
+
+  function emitWrapped(s, level, out){
+    s=clean(s);
+    const ind=unit.repeat(level);
+    for(let seg of s.split(BR)){
+      seg=seg.replace(/^\u0000+|\u0000+$/g,'');
+      if(!seg) continue;
+      if(!W){ out.push(ind+seg.replace(/\u0000/g,' ')); continue; }
+      let line='';
+      for(const w of seg.split(SP)){
+        if(!line) line=w;
+        else if((ind+line+' '+w).length>W){ out.push(ind+line); line=w; }
+        else line+=' '+w;
+      }
+      if(line) out.push(ind+line);
+    }
+  }
+
+  function pushOpen(n, ind, out, suffix){
+    const one=openTag(n);
+    if(o.wrapAttrs && W && n.attrs.length>1 && (ind+one+(suffix||'')).length>W){
+      out.push(ind+'<'+n.name);
+      n.attrs.forEach(a=>out.push(ind+unit+a));
+      out.push(ind+(n.selfClose?'/>':'>')+(suffix||''));
+    }else out.push(ind+one+(suffix||''));
+  }
+
+  function renderChildren(kids, level, out){
+    const start=out.length; let run=[];
+    const flush=()=>{ if(run.length){ emitWrapped(inlineStr(run), level, out); run=[]; } };
+    for(const ch of kids){
+      if(ch.type==='comment' && !keepComment(ch.v)) continue;
+      if(isWS(ch)){
+        if(o.keepBlank && /\n[ \t]*\r?\n/.test(ch.v) && !run.some(r=>!isWS(r))){
+          flush();
+          if(out.length>start && out[out.length-1]!=='') out.push('');
+        } else run.push(ch);
+        continue;
+      }
+      if(isInline(ch)){ run.push(ch); continue; }
+      flush(); renderNode(ch, level, out);
+    }
+    flush();
+    while(out.length>start && out[out.length-1]==='') out.pop();
+  }
+
+  function renderNode(n, level, out){
+    const ind=unit.repeat(level);
+    if(n.type==='doctype'){ out.push(ind+n.v.replace(/\s+/g,' ')); return; }
+    if(n.type==='comment'){
+      if(!keepComment(n.v)) return;
+      const lines=n.v.replace(/\r\n?/g,'\n').split('\n');
+      out.push(ind+lines[0].trim());
+      if(lines.length>1){
+        const rest=dedent(lines.slice(1).join('\n'));
+        rest.forEach((l,k)=>{
+          const isEnd=k===rest.length-1 && /^-->|^<!\[endif/.test(l.trim());
+          out.push(l ? ind+(isEnd?'':unit)+(isEnd?l.trim():l) : '');
+        });
+      }
+      return;
+    }
+    if(n.type==='raw'||n.type==='text'){ out.push(ind+n.v.trim()); return; }
+    if(n.type!=='el') return;
+
+    const close=closeTag(n);
+    if(VOID.has(n.lname)||n.selfClose){ pushOpen(n, ind, out); return; }
+
+    if(n.raw!==undefined){
+      const body=n.raw;
+      if(n.lname!=='script' && n.lname!=='style'){ out.push(ind+openTag(n)+body+close); return; }
+      if(!/\S/.test(body)){ out.push(ind+openTag(n)+close); return; }
+      let lines=null;
+      if(o.formatCode){
+        if(n.lname==='style') lines=formatCss(body, unit);
+        else if(isJsonScript(n)){
+          try{ lines=JSON.stringify(JSON.parse(body),null,unit).split('\n'); }catch(e){ lines=dedent(body); }
+        } else lines=dedent(body);
+      }
+      if(!lines){ out.push(ind+openTag(n)+body+close); return; }
+      pushOpen(n, ind, out);
+      lines.forEach(l=>out.push(l ? ind+unit+l : ''));
+      if(close) out.push(ind+close);
+      return;
+    }
+
+    const kids=n.children;
+    const hasContent=kids.some(k=>!isWS(k) && !(k.type==='comment' && !keepComment(k.v)));
+    if(!hasContent){ out.push(ind+openTag(n)+close); return; }
+
+    if(kids.every(isInline)){
+      const s=clean(inlineStr(kids)).replace(/\u0000/g,' ').replace(/\u0001/g,'');
+      const one=openTag(n)+s+close;
+      if(!W || (ind+one).length<=W){ out.push(ind+one); return; }
+    }
+    pushOpen(n, ind, out);
+    renderChildren(kids, level+1, out);
+    if(close) out.push(ind+close);
+  }
+
+  const out=[];
+  renderChildren(root.children, 0, out);
+  return {text: out.map(l=>l.replace(/\s+$/,'')).join('\n')+'\n', warnings};
+}
+
+/* ---------- minifier ---------- */
+function minifyHtml(src, o){
+  src=src.replace(/[\u0000\u0001]/g,'');
+  const {root,warnings}=parse(src);
+  const openTag = n => '<'+n.name+(n.attrs.length?' '+n.attrs.join(' '):'')+(n.selfClose?'/':'')+'>';
+  const inlineish = n => n && (n.type==='text' || (n.type==='el' && INLINE.has(n.lname)));
+
+  function walk(nodes, parentInline){
+    // drop non-conditional comments first so they don't affect whitespace decisions
+    nodes=nodes.filter(n=>!(n.type==='comment' && !isConditional(n.v)));
+    let out='';
+    nodes.forEach((n,k)=>{
+      const prev=nodes[k-1], next=nodes[k+1];
+      if(n.type==='text'){
+        let t=n.v.replace(/\s+/g,' ');
+        if(!parentInline){
+          if(!inlineish(prev)) t=t.replace(/^ /,'');
+          if(!inlineish(next)) t=t.replace(/ $/,'');
+        }
+        if(t===' ' && (!inlineish(prev)||!inlineish(next))) t='';
+        out+=t; return;
+      }
+      if(n.type==='comment'||n.type==='raw'){ out+=n.v; return; }
+      if(n.type==='doctype'){ out+=n.v.replace(/\s+/g,' '); return; }
+      if(n.type!=='el') return;
+      const close=n.closed?'</'+n.name+'>':'';
+      if(VOID.has(n.lname)||n.selfClose){ out+=openTag(n); return; }
+      if(n.raw!==undefined){
+        let body=n.raw;
+        if(n.lname==='style') body=minifyCss(body);
+        else if(n.lname==='script'){
+          if(isJsonScript(n)){ try{ body=JSON.stringify(JSON.parse(body)); }catch(e){ body=body.trim(); } }
+          else body=body.trim();
+        }
+        out+=openTag(n)+body+close; return;
+      }
+      out+=openTag(n)+walk(n.children, INLINE.has(n.lname))+close;
+    });
+    return out;
+  }
+  return {text: walk(root.children,false), warnings};
+}
+
+/* ===================================================================
+   UI
+   =================================================================== */
+if(typeof document!=='undefined'){
+  const $=id=>document.getElementById(id);
+  const input=$('input'), output=$('output');
+  let fileName='formatted.html';
+
+  const store={
+    get(k){ try{ return localStorage.getItem('htmlfmt.'+k); }catch(e){ return null; } },
+    set(k,v){ try{ localStorage.setItem('htmlfmt.'+k,v); }catch(e){} }
+  };
+  const opts=['optIndent','optWrap','optCode','optBlank','optAttrs','optComments'];
+  opts.forEach(id=>{
+    const el=$(id), v=store.get(id);
+    if(v!==null){ if(el.type==='checkbox') el.checked=v==='1'; else el.value=v; }
+    el.addEventListener('change',()=>{ store.set(id, el.type==='checkbox'?(el.checked?'1':'0'):el.value); if(output.value) runFormat(); });
+  });
+
+  const getOpts=()=>({
+    indent: $('optIndent').value==='tab' ? '\t' : ' '.repeat(+$('optIndent').value),
+    wrap: +$('optWrap').value,
+    formatCode: $('optCode').checked,
+    keepBlank: $('optBlank').checked,
+    wrapAttrs: $('optAttrs').checked,
+    removeComments: $('optComments').checked
+  });
+
+  const fmtSize=s=>{ const b=new Blob([s]).size; return b<1024? b+' B' : (b/1024).toFixed(1)+' KB'; };
+  const lines=s=>s? s.split('\n').length - (s.endsWith('\n')?1:0) : 0;
+
+  function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove('show'),1600); }
+
+  function show(res, label){
+    output.value=res.text;
+    output.style.tabSize=$('optIndent').value==='tab'?4:+$('optIndent').value;
+    $('stats').innerHTML=`${label}: input ${fmtSize(input.value)} · ${lines(input.value)} lines → output ${fmtSize(res.text)} · ${lines(res.text)} lines`+
+      (res.warnings.length?'':' · <span class="ok">no structural problems found</span>');
+    const wb=$('warnBox'); wb.innerHTML='';
+    if(res.warnings.length){
+      const d=document.createElement('details'); d.className='warnings';
+      const s=document.createElement('summary'); s.textContent=`${res.warnings.length} warning${res.warnings.length>1?'s':''} (the output keeps your markup as-is)`;
+      const ul=document.createElement('ul');
+      res.warnings.slice(0,200).forEach(w=>{ const li=document.createElement('li'); li.textContent=w; ul.appendChild(li); });
+      d.append(s,ul); wb.appendChild(d);
+    }
+  }
+
+  function runFormat(){
+    if(!input.value.trim()){ toast('Nothing to format'); return; }
+    try{ show(formatHtml(input.value,getOpts()),'Formatted'); }
+    catch(e){ console.error(e); toast('Could not format: '+e.message); }
+  }
+  function runMinify(){
+    if(!input.value.trim()){ toast('Nothing to minify'); return; }
+    try{ show(minifyHtml(input.value,getOpts()),'Minified'); }
+    catch(e){ console.error(e); toast('Could not minify: '+e.message); }
+  }
+
+  $('btnFormat').onclick=runFormat;
+  $('btnMinify').onclick=runMinify;
+  $('btnClear').onclick=()=>{ input.value=''; output.value=''; $('stats').textContent='Ready.'; $('warnBox').innerHTML=''; fileName='formatted.html'; input.focus(); };
+  $('btnUse').onclick=()=>{ if(output.value){ input.value=output.value; toast('Output moved to input'); } };
+
+  $('btnCopy').onclick=async()=>{
+    if(!output.value) return toast('Nothing to copy');
+    try{ await navigator.clipboard.writeText(output.value); }
+    catch(e){ output.select(); document.execCommand('copy'); output.setSelectionRange(0,0); }
+    toast('Copied to clipboard');
+  };
+  $('btnDownload').onclick=()=>{
+    if(!output.value) return toast('Nothing to download');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([output.value],{type:'text/html;charset=utf-8'}));
+    a.download=fileName; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500);
+  };
+
+  function loadFile(f){
+    if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ input.value=r.result; const base=f.name.replace(/\.[^.]+$/,''); const ext=(f.name.match(/\.[^.]+$/)||['.html'])[0];
+      fileName=base+'.formatted'+ext; runFormat(); toast('Loaded '+f.name); };
+    r.readAsText(f);
+  }
+  $('btnUpload').onclick=()=>$('fileInput').click();
+  $('fileInput').onchange=e=>{ loadFile(e.target.files[0]); e.target.value=''; };
+
+  const pane=$('inPane'); let dragDepth=0;
+  pane.addEventListener('dragenter',e=>{ e.preventDefault(); dragDepth++; pane.classList.add('dragging'); });
+  pane.addEventListener('dragover',e=>e.preventDefault());
+  pane.addEventListener('dragleave',()=>{ if(--dragDepth<=0){ dragDepth=0; pane.classList.remove('dragging'); } });
+  pane.addEventListener('drop',e=>{ e.preventDefault(); dragDepth=0; pane.classList.remove('dragging'); loadFile(e.dataTransfer.files[0]); });
+  // stop the browser from opening a file dropped elsewhere on the page
+  window.addEventListener('dragover',e=>e.preventDefault());
+  window.addEventListener('drop',e=>e.preventDefault());
+
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); runFormat(); }
+  });
+  input.addEventListener('keydown',e=>{
+    if(e.key==='Tab' && !e.ctrlKey && !e.altKey){
+      e.preventDefault();
+      const s=input.selectionStart, en=input.selectionEnd, ins=getOpts().indent;
+      input.setRangeText(ins,s,en,'end');
+    }
+  });
+
+  $('btnSample').onclick=()=>{
+    input.value=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sample page</title><style>body{font-family:sans-serif;margin:0}.card{padding:16px;border:1px solid #ddd;border-radius:8px}@media (max-width:600px){.card{padding:8px}}</style></head><body><!-- main navigation --><nav class="top-nav"><ul><li><a href="/">Home</a><li><a href="/about">About us</a><li><a href="/contact" class="link link--primary" data-track="nav-contact" aria-label="Contact our team">Contact</a></ul></nav><main><div class="card"><h1>Hello <em>world</em></h1><p>This is some <strong>messy</strong> HTML that has been squashed onto a single line. It is very hard to read, but the formatter will indent it properly and wrap long lines of text so they stay readable.<br>New line after a break.</p><img src=photo.jpg alt="A photo"><table><tr><td>One<td>Two<tr><td>Three<td>Four</table></div><pre>  preformatted
+    text is   kept exactly</pre></main><script>document.querySelectorAll('a').forEach(function(a){
+        a.addEventListener('click',function(){console.log(a.href)});
+      });<\/script></body></html>`;
+    fileName='sample.formatted.html';
+    runFormat();
+  };
+}
+</script>
+</body>
+</html>
